@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pretest Analyzer</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="tooltip" class="tooltip" hidden></div>
+
+<header class="app-header">
+  <div class="app-header__brand">
+    <span class="app-header__mark">PA</span>
+    <div>
+      <h1>Pretest Analyzer</h1>
+      <p id="fileMeta" class="app-header__meta">Sube un archivo para empezar</p>
+    </div>
+  </div>
+  <div class="app-header__actions">
+    <button id="resetBtn" class="btn btn--ghost" hidden>Subir otro archivo</button>
+    <button id="themeToggle" class="btn btn--icon" title="Cambiar tema" aria-label="Cambiar tema">
+      <span id="themeIcon">&#9789;</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- Upload screen -->
+  <section id="uploadScreen" class="upload-screen">
+    <div class="upload-card">
+      <h2>Analiza tu pretest</h2>
+      <p class="text-secondary">
+        Sube tus datos en <strong>.xlsx</strong>, <strong>Stata (.dta)</strong> o <strong>SPSS (.sav)</strong>
+        para ver tablas y gráficos descriptivos y tablas cruzadas con chi-cuadrado.
+        Los datos se procesan solo en memoria durante esta sesión.
+      </p>
+      <label id="dropzone" class="dropzone" for="fileInput">
+        <span class="dropzone__icon">&#8593;</span>
+        <span class="dropzone__title">Arrastra tu archivo aquí</span>
+        <span class="dropzone__hint">o haz clic para seleccionarlo &middot; .xlsx, .xls, .dta, .sav &middot; máx. 25&nbsp;MB</span>
+        <input id="fileInput" type="file" accept=".xlsx,.xls,.dta,.sav" hidden>
+      </label>
+      <div id="uploadStatus" class="upload-status" hidden></div>
+    </div>
+  </section>
+
+  <!-- App screen -->
+  <section id="appScreen" class="app-screen" hidden>
+    <aside class="sidebar">
+      <input id="varSearch" class="search-input" type="search" placeholder="Buscar variable…">
+      <div id="varList" class="var-list"></div>
+    </aside>
+
+    <div class="content">
+      <nav class="tabs">
+        <button class="tab is-active" data-tab="describe">Descriptivos</button>
+        <button class="tab" data-tab="crosstab">Tablas cruzadas</button>
+      </nav>
+
+      <div id="tabDescribe" class="tab-panel is-active">
+        <div id="describeEmpty" class="empty-state">Selecciona una variable de la lista para ver sus estadísticos.</div>
+        <div id="describeContent" class="describe-content" hidden></div>
+      </div>
+
+      <div id="tabCrosstab" class="tab-panel">
+        <div class="crosstab-controls">
+          <label class="field">
+            <span>Variable 1 (filas)</span>
+            <select id="crossVar1"></select>
+          </label>
+          <label class="field">
+            <span>Variable 2 (columnas)</span>
+            <select id="crossVar2"></select>
+          </label>
+          <button id="crossBtn" class="btn btn--primary">Calcular tabla cruzada</button>
+        </div>
+        <div id="crosstabEmpty" class="empty-state">Elige dos variables categóricas para calcular la tabla cruzada y el test de chi-cuadrado.</div>
+        <div id="crosstabContent" class="crosstab-content" hidden></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
