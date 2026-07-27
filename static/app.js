@@ -16,6 +16,7 @@
     varListMode: localStorage.getItem("pretest-varlist-mode") || "name",
     crosstabData: null,
     crosstabMode: "count",
+    regressionType: "linear",
   };
 
   const el = (id) => document.getElementById(id);
@@ -159,6 +160,7 @@
     renderVarList("");
     populateCrossSelects();
     renderMrsetList();
+    populateRegressionDependent();
 
     el("describeEmpty").hidden = false;
     el("describeContent").hidden = true;
@@ -166,6 +168,8 @@
     el("crosstabContent").hidden = true;
     el("mrsetEmpty").hidden = false;
     el("mrsetContent").hidden = true;
+    el("regressionEmpty").hidden = false;
+    el("regressionContent").hidden = true;
   }
 
   el("resetBtn").addEventListener("click", async () => {
@@ -407,6 +411,7 @@
         closeModal();
         renderVarList(el("varSearch").value);
         populateCrossSelects();
+        populateRegressionDependent();
         selectVariable(data.new_name);
       } catch (err) {
         showModalError(err.message);
@@ -450,6 +455,7 @@
         closeModal();
         renderVarList(el("varSearch").value);
         populateCrossSelects();
+        populateRegressionDependent();
         renderDescribe(name, resData.detail);
       } catch (err) {
         showModalError(err.message);
@@ -538,6 +544,7 @@
           closeModal();
           renderVarList(el("varSearch").value);
           populateCrossSelects();
+          populateRegressionDependent();
           selectVariable(resData.new_var);
         } catch (err) {
           showModalError(err.message);
@@ -565,6 +572,7 @@
           closeModal();
           renderVarList(el("varSearch").value);
           populateCrossSelects();
+          populateRegressionDependent();
           selectVariable(resData.new_var);
         } catch (err) {
           showModalError(err.message);
@@ -574,7 +582,7 @@
   }
 
   // ---------- Tabs ----------
-  const TAB_PANELS = { describe: "tabDescribe", crosstab: "tabCrosstab", mrset: "tabMrset" };
+  const TAB_PANELS = { describe: "tabDescribe", crosstab: "tabCrosstab", mrset: "tabMrset", regression: "tabRegression" };
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach((t) => t.classList.remove("is-active"));
@@ -943,6 +951,168 @@
         showModalError(err.message);
       }
     });
+  }
+
+  // ---------- Regression ----------
+  el("regressionTypeToggle").querySelectorAll(".segmented__btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.regressionType = btn.dataset.type;
+      el("regressionTypeToggle").querySelectorAll(".segmented__btn").forEach((b) => b.classList.toggle("is-active", b === btn));
+      populateRegressionDependent();
+    });
+  });
+
+  el("regDependent").addEventListener("change", renderRegressionIndependents);
+
+  function populateRegressionDependent() {
+    const select = el("regDependent");
+    const eligible = state.regressionType === "linear"
+      ? state.variables.filter((v) => v.role === "numeric")
+      : state.variables.filter((v) => v.role === "categorical" && v.n_unique === 2);
+    const prev = select.value;
+    select.innerHTML = eligible.length
+      ? eligible.map((v) => `<option value="${escapeHtml(v.name)}">${escapeHtml(varLabelText(v))}</option>`).join("")
+      : `<option value="">— ninguna variable elegible —</option>`;
+    if (eligible.some((v) => v.name === prev)) select.value = prev;
+    renderRegressionIndependents();
+  }
+
+  function varLabelText(v) {
+    return v.label && v.label !== v.name ? `${v.label} (${v.name})` : v.name;
+  }
+
+  function renderRegressionIndependents() {
+    const dep = el("regDependent").value;
+    const container = el("regIndependents");
+    const previouslyChecked = new Set(
+      Array.from(container.querySelectorAll(".reg-var-checkbox:checked")).map((c) => c.value)
+    );
+    const eligible = state.variables.filter((v) => v.name !== dep);
+
+    if (!eligible.length) {
+      container.innerHTML = `<div class="text-secondary" style="font-size:12.5px;padding:6px 4px">No hay variables disponibles.</div>`;
+      return;
+    }
+
+    container.innerHTML = eligible.map((v) => `
+      <div class="checklist-item-wrap">
+        <label class="checklist-item">
+          <input type="checkbox" class="reg-var-checkbox" value="${escapeHtml(v.name)}" ${previouslyChecked.has(v.name) ? "checked" : ""}>
+          <span>${escapeHtml(varLabelText(v))}</span>
+          <span class="badge badge--${v.role}">${v.role === "numeric" ? "num" : "cat"}</span>
+        </label>
+        ${v.role === "categorical" ? `<select class="reg-ref-select" data-var="${escapeHtml(v.name)}" hidden></select>` : ""}
+      </div>
+    `).join("");
+
+    container.querySelectorAll(".reg-var-checkbox").forEach((cb) => {
+      cb.addEventListener("change", () => onRegressionVarToggle(cb));
+      if (cb.checked) onRegressionVarToggle(cb);
+    });
+  }
+
+  async function onRegressionVarToggle(checkbox) {
+    const varName = checkbox.value;
+    const wrap = checkbox.closest(".checklist-item-wrap");
+    const refSelect = wrap.querySelector(".reg-ref-select");
+    if (!refSelect) return;
+
+    if (!checkbox.checked) {
+      refSelect.hidden = true;
+      refSelect.innerHTML = "";
+      return;
+    }
+
+    refSelect.hidden = false;
+    refSelect.innerHTML = `<option>Cargando categorías…</option>`;
+    try {
+      const res = await fetch(`/api/variable/${state.sessionId}/${encodeURIComponent(varName)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Error al cargar categorías.");
+      refSelect.innerHTML = data.frequencies
+        .map((f, i) => `<option value="${escapeHtml(f.label)}">${escapeHtml(f.label)}${i === 0 ? " — referencia por defecto" : ""}</option>`)
+        .join("");
+    } catch (err) {
+      refSelect.innerHTML = `<option value="">Error al cargar categorías</option>`;
+    }
+  }
+
+  el("regSubmit").addEventListener("click", async () => {
+    const dependent = el("regDependent").value;
+    if (!dependent) return renderRegressionError("Elige una variable dependiente.");
+    const independents = Array.from(el("regIndependents").querySelectorAll(".reg-var-checkbox:checked")).map((c) => c.value);
+    if (!independents.length) return renderRegressionError("Selecciona al menos una variable independiente.");
+
+    const references = {};
+    el("regIndependents").querySelectorAll(".reg-ref-select").forEach((sel) => {
+      if (!sel.hidden && sel.value) references[sel.dataset.var] = sel.value;
+    });
+
+    const content = el("regressionContent");
+    el("regressionEmpty").hidden = true;
+    content.hidden = false;
+    content.innerHTML = `<div class="empty-state">Calculando…</div>`;
+
+    const endpoint = state.regressionType === "linear" ? "linear" : "logistic";
+    try {
+      const data = await postJson(`/api/regression/${state.sessionId}/${endpoint}`, { dependent, independents, references });
+      renderRegressionResult(data);
+    } catch (err) {
+      renderRegressionError(err.message);
+    }
+  });
+
+  function renderRegressionError(message) {
+    const content = el("regressionContent");
+    el("regressionEmpty").hidden = true;
+    content.hidden = false;
+    content.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+  }
+
+  function renderRegressionResult(data) {
+    const content = el("regressionContent");
+    const isLogit = data.type === "logistic";
+    const depHeading = varHeadingHtml(data.dependent, data.dependent_label);
+
+    const summaryTiles = isLogit
+      ? `${statTile("N", data.n)}${statTile("Pseudo R² (McFadden)", fmt(data.pseudo_r_squared, 3))}${statTile("Log-verosimilitud", fmt(data.log_likelihood, 2))}`
+      : `${statTile("N", data.n)}${statTile("R²", fmt(data.r_squared, 3))}${statTile("R² ajustado", fmt(data.r_squared_adj, 3))}${data.f_statistic !== null ? statTile("F", fmt(data.f_statistic, 2)) : ""}`;
+
+    const rows = data.coefficients.map((c) => `
+      <tr>
+        <td style="text-align:left">${escapeHtml(c.term)}</td>
+        <td>${fmt(c.coef, 3)}</td>
+        <td>${fmt(c.std_err, 3)}</td>
+        ${isLogit ? `<td>${fmt(c.odds_ratio, 3)}</td>` : ""}
+        <td class="${c.significant_at_05 ? "text-significant" : ""}">${fmtP(c.p_value)}</td>
+      </tr>
+    `).join("");
+
+    content.innerHTML = `
+      <div class="card">
+        <h3>${isLogit ? "Regresión logística" : "Regresión lineal múltiple"}: ${depHeading}</h3>
+        ${isLogit ? `<p class="modal-hint">Modela la probabilidad de "${escapeHtml(data.dependent_event)}" frente a la referencia "${escapeHtml(data.dependent_reference)}".</p>` : ""}
+        <div class="stat-grid" style="margin-top:14px">${summaryTiles}</div>
+      </div>
+      <div class="card">
+        <h3>Coeficientes</h3>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align:left">Término</th>
+                <th>Coef.</th>
+                <th>Error típico</th>
+                ${isLogit ? "<th>Odds ratio</th>" : ""}
+                <th>p-valor</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <p class="modal-hint" style="margin-top:14px">Los predictores categóricos se muestran como "variable = categoría (ref: categoría de referencia)". Por defecto la referencia es la categoría más baja según el orden lógico de la variable; puedes cambiarla en el desplegable que aparece junto a cada variable categórica marcada. En verde, los coeficientes significativos (p &lt; 0,05).</p>
+      </div>
+    `;
   }
 
   // ---------- Utils ----------

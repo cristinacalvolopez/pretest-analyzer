@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import mrsets as mrsetsmod
+from . import regression as regressionmod
 from . import stats as statsmod
 from . import store
 from .readers import read_dataset
@@ -274,6 +275,50 @@ async def mrset_summary(session_id: str, name: str):
     if mrset is None:
         raise HTTPException(404, "Conjunto no encontrado.")
     return mrsetsmod.build_summary(df, mrset)
+
+
+# ---------- Regresión ----------
+
+class RegressionRequest(BaseModel):
+    dependent: str
+    independents: list[str]
+    references: dict[str, str] = {}
+
+
+def _check_regression_vars(df, dependent: str, independents: list[str]) -> None:
+    if dependent not in df.columns:
+        raise HTTPException(404, "Variable dependiente no encontrada.")
+    missing = [v for v in independents if v not in df.columns]
+    if missing:
+        raise HTTPException(404, f"Variable no encontrada: {missing[0]}")
+
+
+@app.post("/api/regression/{session_id}/linear")
+async def regression_linear(session_id: str, payload: RegressionRequest):
+    df = _get_df_or_404(session_id)
+    _check_regression_vars(df, payload.dependent, payload.independents)
+    try:
+        result = regressionmod.run_linear(df, payload.dependent, payload.independents, payload.references)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    labels = store.get_labels(session_id)
+    result["dependent_label"] = labels.get(payload.dependent, payload.dependent)
+    return result
+
+
+@app.post("/api/regression/{session_id}/logistic")
+async def regression_logistic(session_id: str, payload: RegressionRequest):
+    df = _get_df_or_404(session_id)
+    _check_regression_vars(df, payload.dependent, payload.independents)
+    try:
+        result = regressionmod.run_logistic(df, payload.dependent, payload.independents, payload.references)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    labels = store.get_labels(session_id)
+    result["dependent_label"] = labels.get(payload.dependent, payload.dependent)
+    return result
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

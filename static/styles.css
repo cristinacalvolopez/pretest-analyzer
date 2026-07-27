@@ -573,6 +573,26 @@ tfoot td { font-weight: 600; border-top: 1px solid var(--baseline); border-botto
 .mrset-detail-col { flex: 1; min-width: 0; }
 .mrset-list { display: flex; flex-direction: column; gap: 4px; }
 
+/* ---------- Regression tab ---------- */
+.regression-layout { display: flex; gap: 24px; align-items: flex-start; }
+.regression-controls-col { width: 320px; flex-shrink: 0; }
+.regression-result-col { flex: 1; min-width: 0; }
+
+.checklist-item-wrap { border-radius: var(--radius-sm); }
+.reg-ref-select {
+  display: block;
+  width: calc(100% - 30px);
+  margin: 2px 0 6px 30px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.text-significant { color: var(--good); font-weight: 600; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 760px) {
   .app-screen { grid-template-columns: 1fr; }
@@ -580,4 +600,6 @@ tfoot td { font-weight: 600; border-top: 1px solid var(--baseline); border-botto
   .content { padding: 20px; }
   .mrset-layout { flex-direction: column; }
   .mrset-list-col { width: 100%; }
+  .regression-layout { flex-direction: column; }
+  .regression-controls-col { width: 100%; }
 }

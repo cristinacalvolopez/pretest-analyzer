@@ -65,6 +65,7 @@
         <button class="tab is-active" data-tab="describe">Descriptivos</button>
         <button class="tab" data-tab="crosstab">Tablas cruzadas</button>
         <button class="tab" data-tab="mrset">Respuesta múltiple</button>
+        <button class="tab" data-tab="regression">Regresión</button>
       </nav>
 
       <div id="tabDescribe" class="tab-panel is-active">
@@ -97,6 +98,33 @@
           <div class="mrset-detail-col">
             <div id="mrsetEmpty" class="empty-state">Crea o selecciona un conjunto de respuesta múltiple (al estilo SPSS) para ver su resumen de frecuencias.</div>
             <div id="mrsetContent" class="mrset-content" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tabRegression" class="tab-panel">
+        <div class="regression-layout">
+          <div class="regression-controls-col">
+            <div class="field">
+              <span>Tipo de modelo</span>
+              <div class="segmented" id="regressionTypeToggle" role="group" aria-label="Tipo de regresión">
+                <button type="button" class="segmented__btn is-active" data-type="linear">Lineal</button>
+                <button type="button" class="segmented__btn" data-type="logistic">Logística</button>
+              </div>
+            </div>
+            <label class="field" style="margin-top:14px">
+              <span>Variable dependiente</span>
+              <select id="regDependent"></select>
+            </label>
+            <div class="field" style="margin-top:14px">
+              <span>Variables independientes</span>
+              <div id="regIndependents" class="checklist"></div>
+            </div>
+            <button id="regSubmit" class="btn btn--primary" style="margin-top:16px;width:100%">Calcular regresión</button>
+          </div>
+          <div class="regression-result-col">
+            <div id="regressionEmpty" class="empty-state">Elige un tipo de modelo, la variable dependiente y al menos una independiente.</div>
+            <div id="regressionContent" class="regression-content" hidden></div>
           </div>
         </div>
       </div>
