@@ -20,13 +20,15 @@ def classify_role(series: pd.Series) -> str:
     return "categorical"
 
 
-def variable_summary(df: pd.DataFrame) -> list[dict]:
+def variable_summary(df: pd.DataFrame, labels: dict[str, str] | None = None) -> list[dict]:
+    labels = labels or {}
     out = []
     for col in df.columns:
         s = df[col]
         out.append(
             {
                 "name": col,
+                "label": labels.get(col, col),
                 "role": classify_role(s),
                 "dtype": str(s.dtype),
                 "n": int(s.shape[0]),
@@ -165,14 +167,20 @@ def recode_numeric(series: pd.Series, rules: list[dict], other_label: str | None
 
     Las reglas se evalúan en orden y gana la primera que encaje (min/max son
     inclusivos; None significa "sin límite" por ese lado). Los valores
-    perdidos del origen siguen siendo perdidos en el resultado.
+    perdidos del origen siguen siendo perdidos en el resultado. El resultado
+    es categórico con las categorías en el orden en que se definieron las
+    reglas (p. ej. Joven/Adulto/Mayor), para que tablas y gráficos respeten
+    ese orden en vez de caer al alfabético.
     """
     values = series.astype(float)
     result = pd.Series([None] * len(series), index=series.index, dtype=object)
     unmatched = pd.Series(True, index=series.index)
+    category_labels: list[str] = []
 
     for rule in rules:
         lo, hi, label = rule.get("min"), rule.get("max"), rule["label"]
+        if label not in category_labels:
+            category_labels.append(label)
         mask = unmatched & values.notna()
         if lo is not None:
             mask &= values >= lo
@@ -183,15 +191,25 @@ def recode_numeric(series: pd.Series, rules: list[dict], other_label: str | None
 
     if other_label:
         result[unmatched & values.notna()] = other_label
+        if other_label not in category_labels:
+            category_labels.append(other_label)
 
-    return result
+    return pd.Series(pd.Categorical(result, categories=category_labels), index=series.index)
 
 
 def recode_categorical(series: pd.Series, rules: list[dict], other_label: str | None) -> pd.Series:
-    """Recodifica una variable categórica agrupando valores originales bajo nuevas etiquetas."""
+    """Recodifica una variable categórica agrupando valores originales bajo nuevas etiquetas.
+
+    El resultado es categórico con las categorías en el orden en que se
+    definieron las reglas (más "otros", si lo hay), para conservar un orden
+    con sentido en vez de caer en el alfabético.
+    """
     mapping: dict[str, str] = {}
+    category_labels: list[str] = []
     for rule in rules:
         label = rule["label"]
+        if label not in category_labels:
+            category_labels.append(label)
         for v in rule["values"]:
             mapping[str(v)] = label
 
@@ -203,4 +221,12 @@ def recode_categorical(series: pd.Series, rules: list[dict], other_label: str | 
             return mapping[key]
         return other_label if other_label else key
 
-    return series.map(map_value)
+    result = series.map(map_value)
+
+    if other_label and other_label not in category_labels:
+        category_labels.append(other_label)
+    for v in result.dropna().unique():
+        if v not in category_labels:
+            category_labels.append(v)
+
+    return pd.Series(pd.Categorical(result, categories=category_labels), index=series.index)

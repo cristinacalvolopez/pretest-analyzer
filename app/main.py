@@ -32,7 +32,7 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(413, "El archivo supera el límite de 25 MB.")
 
     try:
-        df = read_dataset(file.filename, content)
+        df, labels = read_dataset(file.filename, content)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -47,7 +47,7 @@ async def upload(file: UploadFile = File(...)):
         "filename": file.filename,
         "n_rows": int(df.shape[0]),
         "n_cols": int(df.shape[1]),
-        "variables": statsmod.variable_summary(df),
+        "variables": statsmod.variable_summary(df, labels),
     }
 
 
