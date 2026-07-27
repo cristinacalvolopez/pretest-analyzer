@@ -206,17 +206,15 @@
   function renderVarList(filterText) {
     const list = el("varList");
     const q = filterText.trim().toLowerCase();
+    // Se mantiene siempre el orden original del fichero (state.variables ya
+    // llega en ese orden); el toggle Nombre/Etiqueta solo cambia qué texto
+    // se muestra como principal, nunca el orden.
     const filtered = state.variables.filter((v) =>
       v.name.toLowerCase().includes(q) || (v.label || "").toLowerCase().includes(q)
     );
     const byLabel = state.varListMode === "label";
-    const sorted = [...filtered].sort((a, b) => {
-      const av = (byLabel ? (a.label || a.name) : a.name).toLowerCase();
-      const bv = (byLabel ? (b.label || b.name) : b.name).toLowerCase();
-      return av.localeCompare(bv, "es");
-    });
     list.innerHTML = "";
-    sorted.forEach((v) => {
+    filtered.forEach((v) => {
       const primary = byLabel ? (v.label || v.name) : v.name;
       const secondary = v.label && v.label !== v.name ? (byLabel ? v.name : v.label) : null;
       const item = document.createElement("div");
@@ -604,6 +602,15 @@
     if (categorical.some((v) => v.name === prevVar2)) el("crossVar2").value = prevVar2;
     else if (categorical.length > 1) el("crossVar2").selectedIndex = 1;
   }
+
+  el("crossSwapBtn").addEventListener("click", () => {
+    const v1 = el("crossVar1");
+    const v2 = el("crossVar2");
+    const tmp = v1.value;
+    v1.value = v2.value;
+    v2.value = tmp;
+    if (state.crosstabData) el("crossBtn").click();
+  });
 
   el("crossBtn").addEventListener("click", async () => {
     const var1 = el("crossVar1").value;

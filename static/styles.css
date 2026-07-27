@@ -224,7 +224,8 @@ button, input, select { font: inherit; color: inherit; }
 .app-screen {
   display: grid;
   grid-template-columns: 280px 1fr;
-  min-height: calc(100vh - 71px);
+  height: calc(100vh - 71px);
+  overflow: hidden;
 }
 
 .sidebar {
@@ -234,7 +235,8 @@ button, input, select { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .search-input {
@@ -270,7 +272,7 @@ button, input, select { font: inherit; color: inherit; }
 .crosstab-table-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .crosstab-table-header h3 { margin-bottom: 0; }
 
-.var-list { display: flex; flex-direction: column; gap: 4px; }
+.var-list { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; overflow-y: auto; }
 
 .var-item {
   display: flex;
@@ -595,9 +597,9 @@ tfoot td { font-weight: 600; border-top: 1px solid var(--baseline); border-botto
 
 /* ---------- Responsive ---------- */
 @media (max-width: 760px) {
-  .app-screen { grid-template-columns: 1fr; }
-  .sidebar { border-right: none; border-bottom: 1px solid var(--border); max-height: 260px; }
-  .content { padding: 20px; }
+  .app-screen { grid-template-columns: 1fr; height: auto; overflow: visible; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); height: auto; max-height: 260px; }
+  .content { padding: 20px; height: auto; }
   .mrset-layout { flex-direction: column; }
   .mrset-list-col { width: 100%; }
   .regression-layout { flex-direction: column; }
