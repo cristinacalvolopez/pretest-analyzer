@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -12,7 +13,12 @@ from . import stats as statsmod
 from . import store
 from .readers import read_dataset
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# Dentro de un ejecutable de PyInstaller, __file__ no apunta a una ruta real
+# del disco: los archivos añadidos con --add-data se extraen en sys._MEIPASS.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
 
