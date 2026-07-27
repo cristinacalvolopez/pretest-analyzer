@@ -131,3 +131,49 @@ def crosstab_chi2(df: pd.DataFrame, var1: str, var2: str) -> dict:
         "expected": [[float(v) for v in row] for row in expected],
         "low_expected_warning": bool((expected < 5).any()),
     }
+
+
+def recode_numeric(series: pd.Series, rules: list[dict], other_label: str | None) -> pd.Series:
+    """Recodifica una variable numérica en categorías a partir de rangos [min, max].
+
+    Las reglas se evalúan en orden y gana la primera que encaje (min/max son
+    inclusivos; None significa "sin límite" por ese lado). Los valores
+    perdidos del origen siguen siendo perdidos en el resultado.
+    """
+    values = series.astype(float)
+    result = pd.Series([None] * len(series), index=series.index, dtype=object)
+    unmatched = pd.Series(True, index=series.index)
+
+    for rule in rules:
+        lo, hi, label = rule.get("min"), rule.get("max"), rule["label"]
+        mask = unmatched & values.notna()
+        if lo is not None:
+            mask &= values >= lo
+        if hi is not None:
+            mask &= values <= hi
+        result[mask] = label
+        unmatched &= ~mask
+
+    if other_label:
+        result[unmatched & values.notna()] = other_label
+
+    return result
+
+
+def recode_categorical(series: pd.Series, rules: list[dict], other_label: str | None) -> pd.Series:
+    """Recodifica una variable categórica agrupando valores originales bajo nuevas etiquetas."""
+    mapping: dict[str, str] = {}
+    for rule in rules:
+        label = rule["label"]
+        for v in rule["values"]:
+            mapping[str(v)] = label
+
+    def map_value(v):
+        if pd.isna(v):
+            return None
+        key = str(v)
+        if key in mapping:
+            return mapping[key]
+        return other_label if other_label else key
+
+    return series.map(map_value)

@@ -14,6 +14,16 @@ cruzadas con test de chi-cuadrado.
 - Tablas cruzadas entre dos variables categóricas con test de chi-cuadrado
   (estadístico, grados de libertad, p-valor, V de Cramér) y aviso si hay
   frecuencias esperadas bajas.
+- **Recodificación**: crea una nueva variable categórica a partir de rangos
+  numéricos (p. ej. edad → grupos de edad) o agrupando categorías existentes
+  bajo nuevas etiquetas (p. ej. fusionar "Media" y "Alta" en "Satisfecho").
+  La variable original no se modifica.
+- **Renombrar**: cambia el nombre de una variable o edita el texto de sus
+  categorías (equivalente a las etiquetas de valor de SPSS).
+- **Conjuntos de respuesta múltiple** (al estilo SPSS $mrsets): agrupa varias
+  variables dicotómicas (sí/no por opción) o varias variables que comparten
+  categorías (p. ej. 1ª y 2ª opción) y obtén su tabla de frecuencias de
+  respuesta múltiple (N y % de respuestas, % de casos).
 - Los datos solo se guardan en memoria mientras el servidor está en marcha;
   no se escriben en disco ni en una base de datos.
 
@@ -45,7 +55,8 @@ archivo y explora las variables desde el panel lateral.
 app/
   main.py       # rutas FastAPI
   readers.py    # lectura de xlsx / dta / sav
-  stats.py      # descriptivos y chi-cuadrado
+  stats.py      # descriptivos, chi-cuadrado y recodificación
+  mrsets.py     # conjuntos de respuesta múltiple (estilo SPSS)
   store.py      # almacén de sesiones en memoria
 static/
   index.html

@@ -10,12 +10,25 @@
     sessionId: null,
     variables: [],
     activeVar: null,
-    activeTab: "describe",
+    activeVarData: null,
+    mrsets: [],
+    activeMrset: null,
   };
 
   const el = (id) => document.getElementById(id);
   const fmt = (n, d = 2) => (n === null || n === undefined || Number.isNaN(n) ? "—" : Number(n).toLocaleString("es-ES", { maximumFractionDigits: d, minimumFractionDigits: 0 }));
   const fmtP = (p) => (p < 0.001 ? "< 0.001" : fmt(p, 3));
+
+  async function postJson(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ha ocurrido un error.");
+    return data;
+  }
 
   // ---------- Theme ----------
   function initTheme() {
@@ -53,6 +66,27 @@
     tooltipEl.style.top = (evt.clientY - 10) + "px";
   }
   function hideTooltip() { tooltipEl.hidden = true; }
+
+  // ---------- Modal ----------
+  const modalOverlay = el("modalOverlay");
+  const modalBody = el("modalBody");
+
+  function openModal(html) {
+    modalBody.innerHTML = html;
+    modalOverlay.hidden = false;
+    modalBody.querySelectorAll(".modal-close").forEach((b) => b.addEventListener("click", closeModal));
+  }
+  function closeModal() {
+    modalOverlay.hidden = true;
+    modalBody.innerHTML = "";
+  }
+  modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modalOverlay.hidden) closeModal(); });
+
+  function showModalError(message) {
+    const errEl = el("modalError");
+    if (errEl) { errEl.hidden = false; errEl.textContent = message; }
+  }
 
   // ---------- Upload ----------
   const dropzone = el("dropzone");
@@ -103,6 +137,9 @@
     state.sessionId = data.session_id;
     state.variables = data.variables;
     state.activeVar = null;
+    state.activeVarData = null;
+    state.mrsets = [];
+    state.activeMrset = null;
 
     el("fileMeta").textContent = `${data.filename} · ${data.n_rows.toLocaleString("es-ES")} filas · ${data.n_cols} variables`;
     el("resetBtn").hidden = false;
@@ -111,10 +148,14 @@
 
     renderVarList("");
     populateCrossSelects();
+    renderMrsetList();
+
     el("describeEmpty").hidden = false;
     el("describeContent").hidden = true;
     el("crosstabEmpty").hidden = false;
     el("crosstabContent").hidden = true;
+    el("mrsetEmpty").hidden = false;
+    el("mrsetContent").hidden = true;
   }
 
   el("resetBtn").addEventListener("click", async () => {
@@ -124,6 +165,9 @@
     state.sessionId = null;
     state.variables = [];
     state.activeVar = null;
+    state.activeVarData = null;
+    state.mrsets = [];
+    state.activeMrset = null;
     fileInput.value = "";
     el("fileMeta").textContent = "Sube un archivo para empezar";
     el("resetBtn").hidden = true;
@@ -168,6 +212,7 @@
       const res = await fetch(`/api/variable/${state.sessionId}/${encodeURIComponent(name)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Error al cargar la variable.");
+      state.activeVarData = data;
       renderDescribe(name, data);
     } catch (err) {
       content.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
@@ -176,11 +221,22 @@
 
   function renderDescribe(name, data) {
     const content = el("describeContent");
+    const actions = `
+      <div class="var-actions">
+        <button class="btn btn--ghost btn--sm" data-action="rename">Renombrar</button>
+        ${data.role === "categorical" ? '<button class="btn btn--ghost btn--sm" data-action="relabel">Editar etiquetas</button>' : ""}
+        <button class="btn btn--ghost btn--sm" data-action="recode">Recodificar</button>
+      </div>
+    `;
+
     if (data.role === "numeric") {
       const s = data.stats;
       content.innerHTML = `
         <div class="card">
-          <h3>${escapeHtml(name)} <span class="badge badge--numeric">numérica</span></h3>
+          <div class="var-card-header">
+            <h3>${escapeHtml(name)} <span class="badge badge--numeric">numérica</span></h3>
+            ${actions}
+          </div>
           <div class="stat-grid">
             ${statTile("N", s.n)}
             ${statTile("Perdidos", s.missing)}
@@ -203,7 +259,10 @@
       const s = data.stats;
       content.innerHTML = `
         <div class="card">
-          <h3>${escapeHtml(name)} <span class="badge badge--categorical">categórica</span></h3>
+          <div class="var-card-header">
+            <h3>${escapeHtml(name)} <span class="badge badge--categorical">categórica</span></h3>
+            ${actions}
+          </div>
           <div class="stat-grid">
             ${statTile("N", s.n)}
             ${statTile("Perdidos", s.missing)}
@@ -223,6 +282,11 @@
       `;
       renderFrequencyChart(el("freqChart"), data.frequencies);
     }
+
+    content.querySelector('[data-action="rename"]').addEventListener("click", () => openRenameModal(name));
+    content.querySelector('[data-action="recode"]').addEventListener("click", () => openRecodeModal(name, data));
+    const relabelBtn = content.querySelector('[data-action="relabel"]');
+    if (relabelBtn) relabelBtn.addEventListener("click", () => openRelabelModal(name, data));
   }
 
   function statTile(label, value) {
@@ -281,13 +345,207 @@
     }
   }
 
+  // ---------- Rename / relabel / recode modals ----------
+  function openRenameModal(name) {
+    openModal(`
+      <div class="modal-header"><h3>Renombrar variable</h3><button class="modal-close" aria-label="Cerrar">&times;</button></div>
+      <div class="modal-body">
+        <label class="field"><span>Nuevo nombre</span><input id="renameInput" type="text" value="${escapeHtml(name)}"></label>
+        <div id="modalError" class="modal-error" hidden></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--ghost modal-close">Cancelar</button>
+        <button id="renameSubmit" class="btn btn--primary">Guardar</button>
+      </div>
+    `);
+    const input = el("renameInput");
+    input.focus();
+    input.select();
+
+    el("renameSubmit").addEventListener("click", async () => {
+      const newName = input.value.trim();
+      if (!newName) return showModalError("El nombre no puede estar vacío.");
+      try {
+        const data = await postJson(`/api/variables/${state.sessionId}/${encodeURIComponent(name)}/rename`, { new_name: newName });
+        state.variables = data.variables;
+        state.activeVar = data.new_name;
+        closeModal();
+        renderVarList(el("varSearch").value);
+        populateCrossSelects();
+        selectVariable(data.new_name);
+      } catch (err) {
+        showModalError(err.message);
+      }
+    });
+  }
+
+  function openRelabelModal(name, data) {
+    const rows = data.frequencies.map((f) => `
+      <div class="form-row">
+        <span class="form-row__label" title="${escapeHtml(f.label)}">${escapeHtml(f.label)}</span>
+        <input type="text" class="relabel-input" data-old="${escapeHtml(f.label)}" value="${escapeHtml(f.label)}">
+      </div>
+    `).join("");
+
+    openModal(`
+      <div class="modal-header"><h3>Editar etiquetas — ${escapeHtml(name)}</h3><button class="modal-close" aria-label="Cerrar">&times;</button></div>
+      <div class="modal-body">
+        <p class="modal-hint">Cambia el texto de una o varias categorías. Si escribes la misma etiqueta en varias filas, se agrupan en una sola.</p>
+        ${rows}
+        <div id="modalError" class="modal-error" hidden></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--ghost modal-close">Cancelar</button>
+        <button id="relabelSubmit" class="btn btn--primary">Guardar</button>
+      </div>
+    `);
+
+    el("relabelSubmit").addEventListener("click", async () => {
+      const mapping = {};
+      modalBody.querySelectorAll(".relabel-input").forEach((input) => {
+        const oldLabel = input.dataset.old;
+        const newLabel = input.value.trim();
+        if (newLabel && newLabel !== oldLabel) mapping[oldLabel] = newLabel;
+      });
+      if (!Object.keys(mapping).length) { closeModal(); return; }
+      try {
+        const resData = await postJson(`/api/variables/${state.sessionId}/${encodeURIComponent(name)}/relabel`, { mapping });
+        state.variables = resData.variables;
+        state.activeVarData = resData.detail;
+        closeModal();
+        renderVarList(el("varSearch").value);
+        populateCrossSelects();
+        renderDescribe(name, resData.detail);
+      } catch (err) {
+        showModalError(err.message);
+      }
+    });
+  }
+
+  function openRecodeModal(name, data) {
+    const role = data.role;
+    let bodyHtml;
+
+    if (role === "numeric") {
+      bodyHtml = `
+        <label class="field"><span>Nombre de la nueva variable</span><input id="recodeNewVar" type="text" value="${escapeHtml(name)}_rec"></label>
+        <p class="modal-hint" style="margin-top:14px">Define rangos (mín–máx) y una etiqueta para cada uno. Se evalúan en orden; deja un límite vacío para "sin tope".</p>
+        <div id="recodeRules" class="recode-rules"></div>
+        <button id="addRuleBtn" class="btn btn--ghost btn--sm" type="button">+ Añadir rango</button>
+        <label class="field" style="margin-top:14px"><span>Etiqueta para valores fuera de los rangos (opcional)</span><input id="recodeOther" type="text" placeholder="p. ej. Otros"></label>
+      `;
+    } else {
+      const rows = data.frequencies.map((f) => `
+        <div class="form-row">
+          <span class="form-row__label" title="${escapeHtml(f.label)}">${escapeHtml(f.label)} <span class="text-secondary" style="font-size:11px">(${f.count})</span></span>
+          <input type="text" class="recode-cat-input" data-value="${escapeHtml(f.label)}" value="${escapeHtml(f.label)}">
+        </div>
+      `).join("");
+      bodyHtml = `
+        <label class="field"><span>Nombre de la nueva variable</span><input id="recodeNewVar" type="text" value="${escapeHtml(name)}_rec"></label>
+        <p class="modal-hint" style="margin-top:14px">Escribe la misma etiqueta en varias categorías para agruparlas en una nueva.</p>
+        ${rows}
+      `;
+    }
+
+    openModal(`
+      <div class="modal-header"><h3>Recodificar — ${escapeHtml(name)}</h3><button class="modal-close" aria-label="Cerrar">&times;</button></div>
+      <div class="modal-body">${bodyHtml}<div id="modalError" class="modal-error" hidden></div></div>
+      <div class="modal-footer">
+        <button class="btn btn--ghost modal-close">Cancelar</button>
+        <button id="recodeSubmit" class="btn btn--primary">Crear variable</button>
+      </div>
+    `);
+
+    if (role === "numeric") {
+      const rulesContainer = el("recodeRules");
+
+      function addRuleRow(minVal, maxVal, label) {
+        const row = document.createElement("div");
+        row.className = "recode-rule-row";
+        row.innerHTML = `
+          <input type="number" class="rule-min" placeholder="Mín." value="${minVal ?? ""}">
+          <span class="text-secondary">–</span>
+          <input type="number" class="rule-max" placeholder="Máx." value="${maxVal ?? ""}">
+          <input type="text" class="rule-label" placeholder="Etiqueta" value="${escapeHtml(label ?? "")}">
+          <button type="button" class="btn btn--icon btn--sm remove-rule" aria-label="Eliminar rango">&times;</button>
+        `;
+        row.querySelector(".remove-rule").addEventListener("click", () => row.remove());
+        rulesContainer.appendChild(row);
+      }
+      addRuleRow();
+      addRuleRow();
+      el("addRuleBtn").addEventListener("click", () => addRuleRow());
+
+      el("recodeSubmit").addEventListener("click", async () => {
+        const newVar = el("recodeNewVar").value.trim();
+        const otherLabel = el("recodeOther").value.trim() || null;
+        const rules = [];
+        let error = null;
+
+        rulesContainer.querySelectorAll(".recode-rule-row").forEach((row) => {
+          const minStr = row.querySelector(".rule-min").value;
+          const maxStr = row.querySelector(".rule-max").value;
+          const label = row.querySelector(".rule-label").value.trim();
+          if (!label) { error = "Cada rango necesita una etiqueta."; return; }
+          rules.push({ min: minStr === "" ? null : Number(minStr), max: maxStr === "" ? null : Number(maxStr), label });
+        });
+
+        if (error) return showModalError(error);
+        if (!rules.length) return showModalError("Añade al menos un rango.");
+        if (!newVar) return showModalError("Indica un nombre para la nueva variable.");
+
+        try {
+          const resData = await postJson(`/api/recode/${state.sessionId}/numeric`, {
+            source_var: name, new_var: newVar, rules, other_label: otherLabel,
+          });
+          state.variables = resData.variables;
+          closeModal();
+          renderVarList(el("varSearch").value);
+          populateCrossSelects();
+          selectVariable(resData.new_var);
+        } catch (err) {
+          showModalError(err.message);
+        }
+      });
+    } else {
+      el("recodeSubmit").addEventListener("click", async () => {
+        const newVar = el("recodeNewVar").value.trim();
+        if (!newVar) return showModalError("Indica un nombre para la nueva variable.");
+
+        const groups = {};
+        modalBody.querySelectorAll(".recode-cat-input").forEach((input) => {
+          const originalValue = input.dataset.value;
+          const label = input.value.trim() || originalValue;
+          if (!groups[label]) groups[label] = [];
+          groups[label].push(originalValue);
+        });
+        const rules = Object.entries(groups).map(([label, values]) => ({ label, values }));
+
+        try {
+          const resData = await postJson(`/api/recode/${state.sessionId}/categorical`, {
+            source_var: name, new_var: newVar, rules, other_label: null,
+          });
+          state.variables = resData.variables;
+          closeModal();
+          renderVarList(el("varSearch").value);
+          populateCrossSelects();
+          selectVariable(resData.new_var);
+        } catch (err) {
+          showModalError(err.message);
+        }
+      });
+    }
+  }
+
   // ---------- Tabs ----------
+  const TAB_PANELS = { describe: "tabDescribe", crosstab: "tabCrosstab", mrset: "tabMrset" };
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach((t) => t.classList.remove("is-active"));
       document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("is-active"));
       tab.classList.add("is-active");
-      el(tab.dataset.tab === "describe" ? "tabDescribe" : "tabCrosstab").classList.add("is-active");
+      el(TAB_PANELS[tab.dataset.tab]).classList.add("is-active");
     });
   });
 
@@ -295,9 +553,13 @@
   function populateCrossSelects() {
     const categorical = state.variables.filter((v) => v.role === "categorical");
     const options = categorical.map((v) => `<option value="${escapeHtml(v.name)}">${escapeHtml(v.name)}</option>`).join("");
+    const prevVar1 = el("crossVar1").value;
+    const prevVar2 = el("crossVar2").value;
     el("crossVar1").innerHTML = options;
     el("crossVar2").innerHTML = options;
-    if (categorical.length > 1) el("crossVar2").selectedIndex = 1;
+    if (categorical.some((v) => v.name === prevVar1)) el("crossVar1").value = prevVar1;
+    if (categorical.some((v) => v.name === prevVar2)) el("crossVar2").value = prevVar2;
+    else if (categorical.length > 1) el("crossVar2").selectedIndex = 1;
   }
 
   el("crossBtn").addEventListener("click", async () => {
@@ -441,6 +703,182 @@
     container.innerHTML = "";
     container.appendChild(wrap);
     container.appendChild(legend);
+  }
+
+  // ---------- Multiple response sets ----------
+  el("createMrsetBtn").addEventListener("click", openCreateMrsetModal);
+
+  function renderMrsetList() {
+    const list = el("mrsetList");
+    if (!state.mrsets.length) {
+      list.innerHTML = `<div class="empty-state" style="padding:20px 0;font-size:13px">Aún no hay conjuntos.</div>`;
+      return;
+    }
+    list.innerHTML = "";
+    state.mrsets.forEach((m) => {
+      const item = document.createElement("div");
+      item.className = "var-item" + (state.activeMrset === m.name ? " is-active" : "");
+      item.innerHTML = `
+        <div style="min-width:0">
+          <div class="var-item__name">${escapeHtml(m.label || m.name)}</div>
+          <div class="var-item__meta">${m.variables.length} variables · ${m.type === "dichotomy" ? "dicotomías" : "categorías"}</div>
+        </div>
+        <button class="btn btn--icon btn--sm mrset-delete" aria-label="Eliminar conjunto" title="Eliminar">&times;</button>
+      `;
+      item.addEventListener("click", (e) => {
+        if (e.target.closest(".mrset-delete")) return;
+        selectMrset(m.name);
+      });
+      item.querySelector(".mrset-delete").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await fetch(`/api/mrsets/${state.sessionId}/${encodeURIComponent(m.name)}`, { method: "DELETE" });
+        state.mrsets = state.mrsets.filter((x) => x.name !== m.name);
+        if (state.activeMrset === m.name) {
+          state.activeMrset = null;
+          el("mrsetEmpty").hidden = false;
+          el("mrsetContent").hidden = true;
+        }
+        renderMrsetList();
+      });
+      list.appendChild(item);
+    });
+  }
+
+  async function selectMrset(name) {
+    state.activeMrset = name;
+    renderMrsetList();
+    el("mrsetEmpty").hidden = true;
+    const content = el("mrsetContent");
+    content.hidden = false;
+    content.innerHTML = `<div class="empty-state">Cargando…</div>`;
+    try {
+      const res = await fetch(`/api/mrsets/${state.sessionId}/${encodeURIComponent(name)}/summary`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Error al calcular el resumen.");
+      renderMrsetSummary(name, data);
+    } catch (err) {
+      content.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderMrsetSummary(name, data) {
+    const content = el("mrsetContent");
+    const mrset = state.mrsets.find((m) => m.name === name);
+    content.innerHTML = `
+      <div class="card">
+        <h3>${escapeHtml(mrset ? (mrset.label || mrset.name) : name)}</h3>
+        <div class="stat-grid">
+          ${statTile("Respuestas", data.n_responses)}
+          ${statTile("Casos", data.n_cases)}
+          ${statTile("Categorías", data.categories.length)}
+        </div>
+      </div>
+      <div class="card">
+        <h3>Frecuencias</h3>
+        <div id="mrsetChart" class="chart chart--horizontal"></div>
+        <table style="margin-top:20px">
+          <thead><tr><th>Categoría</th><th>N</th><th>% respuestas</th><th>% casos</th></tr></thead>
+          <tbody>
+            ${data.categories.map((c) => `<tr><td>${escapeHtml(c.label)}</td><td>${c.count}</td><td>${fmt(c.pct_responses, 1)}%</td><td>${fmt(c.pct_cases, 1)}%</td></tr>`).join("")}
+          </tbody>
+        </table>
+        <p class="modal-hint" style="margin-top:14px">% de respuestas: sobre el total de selecciones. % de casos: sobre los encuestados que respondieron al menos una opción del conjunto.</p>
+      </div>
+    `;
+    renderMrsetChart(el("mrsetChart"), data.categories);
+  }
+
+  function renderMrsetChart(container, categories) {
+    if (!categories.length) { container.innerHTML = `<div class="empty-state">Sin datos.</div>`; return; }
+    const max = Math.max(...categories.map((c) => c.count), 1);
+    container.innerHTML = "";
+    categories.forEach((c) => {
+      const row = document.createElement("div");
+      row.className = "hbar-row";
+      const widthPct = (c.count / max) * 100;
+      row.innerHTML = `
+        <span class="hbar-row__label" title="${escapeHtml(c.label)}">${escapeHtml(c.label)}</span>
+        <div class="hbar-row__track"><div class="hbar-row__fill" style="width:${widthPct}%;background:var(--series-3)"></div></div>
+        <span class="hbar-row__value">${c.count} (${fmt(c.pct_cases, 1)}%)</span>
+      `;
+      const fill = row.querySelector(".hbar-row__fill");
+      fill.addEventListener("mouseenter", (e) => showTooltip(e, `${escapeHtml(c.label)}: ${c.count} · ${fmt(c.pct_responses, 1)}% respuestas · ${fmt(c.pct_cases, 1)}% casos`));
+      fill.addEventListener("mousemove", moveTooltip);
+      fill.addEventListener("mouseleave", hideTooltip);
+      container.appendChild(row);
+    });
+  }
+
+  function openCreateMrsetModal() {
+    const varChecklist = state.variables.map((v) => `
+      <label class="checklist-item">
+        <input type="checkbox" class="mrset-var-checkbox" value="${escapeHtml(v.name)}">
+        <span>${escapeHtml(v.name)}</span>
+        <span class="badge badge--${v.role}">${v.role === "numeric" ? "num" : "cat"}</span>
+      </label>
+    `).join("");
+
+    openModal(`
+      <div class="modal-header"><h3>Crear conjunto de respuesta múltiple</h3><button class="modal-close" aria-label="Cerrar">&times;</button></div>
+      <div class="modal-body">
+        <label class="field"><span>Nombre (identificador)</span><input id="mrsetName" type="text" placeholder="p. ej. medios"></label>
+        <label class="field" style="margin-top:12px"><span>Etiqueta descriptiva (opcional)</span><input id="mrsetLabel" type="text" placeholder="p. ej. Medios consultados"></label>
+        <div class="field" style="margin-top:12px">
+          <span>Tipo de conjunto</span>
+          <div class="radio-row">
+            <label><input type="radio" name="mrsetType" value="dichotomy" checked> Dicotomías — cada variable es sí/no (p. ej. varias casillas independientes)</label>
+            <label><input type="radio" name="mrsetType" value="category"> Categorías — varias variables comparten el mismo dominio (p. ej. 1ª y 2ª opción)</label>
+          </div>
+        </div>
+        <div id="mrsetDichotomyValue" class="field" style="margin-top:12px">
+          <span>Valor que indica "seleccionado"</span>
+          <input id="mrsetDichValue" type="text" value="1">
+        </div>
+        <div class="field" style="margin-top:12px">
+          <span>Variables incluidas (mínimo 2)</span>
+          <div class="checklist">${varChecklist}</div>
+        </div>
+        <div id="modalError" class="modal-error" hidden></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--ghost modal-close">Cancelar</button>
+        <button id="mrsetSubmit" class="btn btn--primary">Crear</button>
+      </div>
+    `);
+
+    modalBody.querySelectorAll('input[name="mrsetType"]').forEach((radio) => {
+      radio.addEventListener("change", () => {
+        el("mrsetDichotomyValue").hidden = radio.value === "category";
+      });
+    });
+
+    el("mrsetSubmit").addEventListener("click", async () => {
+      const name = el("mrsetName").value.trim();
+      const label = el("mrsetLabel").value.trim();
+      const type = modalBody.querySelector('input[name="mrsetType"]:checked').value;
+      const selected = Array.from(modalBody.querySelectorAll(".mrset-var-checkbox:checked")).map((c) => c.value);
+
+      if (!name) return showModalError("Indica un nombre para el conjunto.");
+      if (selected.length < 2) return showModalError("Selecciona al menos 2 variables.");
+
+      const payload = { name, label, type, variables: selected };
+      if (type === "dichotomy") {
+        payload.dichotomy_value = el("mrsetDichValue").value.trim();
+        const variableLabels = {};
+        selected.forEach((v) => { variableLabels[v] = v; });
+        payload.variable_labels = variableLabels;
+      }
+
+      try {
+        const data = await postJson(`/api/mrsets/${state.sessionId}`, payload);
+        state.mrsets = data.mrsets;
+        closeModal();
+        renderMrsetList();
+        selectMrset(name);
+      } catch (err) {
+        showModalError(err.message);
+      }
+    });
   }
 
   // ---------- Utils ----------
