@@ -141,14 +141,18 @@ def crosstab_chi2(df: pd.DataFrame, var1: str, var2: str) -> dict:
     min_dim = min(table.shape) - 1
     cramers_v = float(np.sqrt((chi2 / n) / min_dim)) if min_dim > 0 and n > 0 else 0.0
 
+    col_totals = table.sum(axis=0)
+    col_pct = table.div(col_totals.replace(0, np.nan), axis=1).fillna(0) * 100
+
     return {
         "var1": var1,
         "var2": var2,
         "row_labels": [str(x) for x in table.index.tolist()],
         "col_labels": [str(x) for x in table.columns.tolist()],
         "table": table.values.tolist(),
+        "col_pct": [[float(v) for v in row] for row in col_pct.values.tolist()],
         "row_totals": table.sum(axis=1).tolist(),
-        "col_totals": table.sum(axis=0).tolist(),
+        "col_totals": col_totals.tolist(),
         "total": int(n),
         "chi2": {
             "statistic": float(chi2),

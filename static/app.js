@@ -13,11 +13,21 @@
     activeVarData: null,
     mrsets: [],
     activeMrset: null,
+    varListMode: localStorage.getItem("pretest-varlist-mode") || "name",
+    crosstabData: null,
+    crosstabMode: "count",
   };
 
   const el = (id) => document.getElementById(id);
   const fmt = (n, d = 2) => (n === null || n === undefined || Number.isNaN(n) ? "—" : Number(n).toLocaleString("es-ES", { maximumFractionDigits: d, minimumFractionDigits: 0 }));
   const fmtP = (p) => (p < 0.001 ? "< 0.001" : fmt(p, 3));
+
+  function varHeadingHtml(name, label) {
+    if (label && label !== name) {
+      return `${escapeHtml(label)} <span class="var-technical-name">(${escapeHtml(name)})</span>`;
+    }
+    return escapeHtml(name);
+  }
 
   async function postJson(url, body) {
     const res = await fetch(url, {
@@ -179,19 +189,38 @@
   // ---------- Sidebar / variable list ----------
   el("varSearch").addEventListener("input", (e) => renderVarList(e.target.value));
 
+  el("varListModeToggle").querySelectorAll(".segmented__btn").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.mode === state.varListMode);
+    btn.addEventListener("click", () => {
+      state.varListMode = btn.dataset.mode;
+      localStorage.setItem("pretest-varlist-mode", state.varListMode);
+      el("varListModeToggle").querySelectorAll(".segmented__btn").forEach((b) => b.classList.toggle("is-active", b === btn));
+      renderVarList(el("varSearch").value);
+    });
+  });
+
   function renderVarList(filterText) {
     const list = el("varList");
+    const q = filterText.trim().toLowerCase();
     const filtered = state.variables.filter((v) =>
-      v.name.toLowerCase().includes(filterText.trim().toLowerCase())
+      v.name.toLowerCase().includes(q) || (v.label || "").toLowerCase().includes(q)
     );
+    const byLabel = state.varListMode === "label";
+    const sorted = [...filtered].sort((a, b) => {
+      const av = (byLabel ? (a.label || a.name) : a.name).toLowerCase();
+      const bv = (byLabel ? (b.label || b.name) : b.name).toLowerCase();
+      return av.localeCompare(bv, "es");
+    });
     list.innerHTML = "";
-    filtered.forEach((v) => {
+    sorted.forEach((v) => {
+      const primary = byLabel ? (v.label || v.name) : v.name;
+      const secondary = v.label && v.label !== v.name ? (byLabel ? v.name : v.label) : null;
       const item = document.createElement("div");
       item.className = "var-item" + (state.activeVar === v.name ? " is-active" : "");
       item.innerHTML = `
         <div style="min-width:0">
-          <div class="var-item__name">${escapeHtml(v.name)}</div>
-          <div class="var-item__meta">${v.n_unique} valores · ${v.n_missing} perdidos</div>
+          <div class="var-item__name" title="${escapeHtml(primary)}">${escapeHtml(primary)}</div>
+          <div class="var-item__meta">${secondary ? `${escapeHtml(secondary)} · ` : ""}${v.n_unique} valores · ${v.n_missing} perdidos</div>
         </div>
         <span class="badge badge--${v.role}">${v.role === "numeric" ? "num" : "cat"}</span>
       `;
@@ -234,7 +263,7 @@
       content.innerHTML = `
         <div class="card">
           <div class="var-card-header">
-            <h3>${escapeHtml(name)} <span class="badge badge--numeric">numérica</span></h3>
+            <h3>${varHeadingHtml(name, data.label)} <span class="badge badge--numeric">numérica</span></h3>
             ${actions}
           </div>
           <div class="stat-grid">
@@ -260,7 +289,7 @@
       content.innerHTML = `
         <div class="card">
           <div class="var-card-header">
-            <h3>${escapeHtml(name)} <span class="badge badge--categorical">categórica</span></h3>
+            <h3>${varHeadingHtml(name, data.label)} <span class="badge badge--categorical">categórica</span></h3>
             ${actions}
           </div>
           <div class="stat-grid">
@@ -598,6 +627,7 @@
   }
 
   function renderCrosstab(data) {
+    state.crosstabData = data;
     const content = el("crosstabContent");
     const chi2 = data.chi2;
     const verdictClass = chi2.significant_at_05 ? "chi2-verdict--sig" : "chi2-verdict--nonsig";
@@ -605,27 +635,16 @@
       ? "Asociación significativa (p < 0.05)"
       : "Sin evidencia de asociación (p ≥ 0.05)";
 
-    let tableRows = "";
-    data.row_labels.forEach((rowLabel, i) => {
-      const cells = data.table[i].map((v) => `<td>${v}</td>`).join("");
-      tableRows += `<tr><td>${escapeHtml(rowLabel)}</td>${cells}<td>${data.row_totals[i]}</td></tr>`;
-    });
-    const colTotalsCells = data.col_totals.map((v) => `<td>${v}</td>`).join("");
-
     content.innerHTML = `
       <div class="card">
-        <h3>Tabla de contingencia: ${escapeHtml(data.var1)} × ${escapeHtml(data.var2)}</h3>
-        <div style="overflow-x:auto">
-          <table>
-            <thead>
-              <tr><th></th>${data.col_labels.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}<th>Total</th></tr>
-            </thead>
-            <tbody>${tableRows}</tbody>
-            <tfoot>
-              <tr><td>Total</td>${colTotalsCells}<td>${data.total}</td></tr>
-            </tfoot>
-          </table>
+        <div class="crosstab-table-header">
+          <h3>Tabla de contingencia: ${varHeadingHtml(data.var1, data.var1_label)} × ${varHeadingHtml(data.var2, data.var2_label)}</h3>
+          <div class="segmented" id="crosstabModeToggle" role="group" aria-label="Frecuencia o porcentaje">
+            <button type="button" class="segmented__btn" data-mode="count">Frecuencia</button>
+            <button type="button" class="segmented__btn" data-mode="colpct">% columna</button>
+          </div>
         </div>
+        <div id="crosstabTableWrap" style="overflow-x:auto"></div>
       </div>
       <div class="card">
         <h3>Test de chi-cuadrado</h3>
@@ -645,7 +664,46 @@
         <div id="crossChart"></div>
       </div>
     `;
+
+    const toggle = el("crosstabModeToggle");
+    toggle.querySelectorAll(".segmented__btn").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.mode === state.crosstabMode);
+      btn.addEventListener("click", () => {
+        state.crosstabMode = btn.dataset.mode;
+        toggle.querySelectorAll(".segmented__btn").forEach((b) => b.classList.toggle("is-active", b === btn));
+        renderCrosstabTable();
+      });
+    });
+    renderCrosstabTable();
     renderGroupedChart(el("crossChart"), data);
+  }
+
+  function renderCrosstabTable() {
+    const data = state.crosstabData;
+    const wrap = el("crosstabTableWrap");
+    const isPct = state.crosstabMode === "colpct";
+
+    let tableRows = "";
+    data.row_labels.forEach((rowLabel, i) => {
+      const cells = data.table[i]
+        .map((v, j) => (isPct ? `<td>${fmt(data.col_pct[i][j], 1)}%</td>` : `<td>${v}</td>`))
+        .join("");
+      tableRows += `<tr><td>${escapeHtml(rowLabel)}</td>${cells}<td>${data.row_totals[i]}</td></tr>`;
+    });
+    const colTotalsCells = data.col_totals.map((v) => (isPct ? `<td>100,0%</td>` : `<td>${v}</td>`)).join("");
+
+    wrap.innerHTML = `
+      <table>
+        <thead>
+          <tr><th></th>${data.col_labels.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}<th>Total</th></tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+        <tfoot>
+          <tr><td>Total</td>${colTotalsCells}<td>${data.total}</td></tr>
+        </tfoot>
+      </table>
+      ${isPct ? `<p class="modal-hint" style="margin-top:10px">Porcentaje sobre el total de cada columna (variable independiente). La columna "Total" sigue mostrando el recuento (N).</p>` : ""}
+    `;
   }
 
   function renderGroupedChart(container, data) {

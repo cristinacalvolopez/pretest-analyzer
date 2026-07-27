@@ -53,6 +53,10 @@
   <section id="appScreen" class="app-screen" hidden>
     <aside class="sidebar">
       <input id="varSearch" class="search-input" type="search" placeholder="Buscar variable…">
+      <div class="segmented" id="varListModeToggle" role="group" aria-label="Mostrar lista por">
+        <button type="button" class="segmented__btn is-active" data-mode="name">Nombre</button>
+        <button type="button" class="segmented__btn" data-mode="label">Etiqueta</button>
+      </div>
       <div id="varList" class="var-list"></div>
     </aside>
 

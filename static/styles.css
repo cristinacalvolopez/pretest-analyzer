@@ -247,6 +247,29 @@ button, input, select { font: inherit; color: inherit; }
 }
 .search-input:focus { outline: 2px solid var(--series-1); outline-offset: -1px; }
 
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; align-self: flex-start; }
+.segmented__btn {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  border: none;
+  border-right: 1px solid var(--border);
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.segmented__btn:last-child { border-right: none; }
+.segmented__btn:hover { background: var(--page); }
+.segmented__btn.is-active { background: var(--series-1); color: #fff; }
+
+#varListModeToggle { width: 100%; }
+#varListModeToggle .segmented__btn { flex: 1; }
+
+.var-technical-name { font-weight: 400; font-size: 0.72em; color: var(--text-muted); margin-left: 4px; }
+
+.crosstab-table-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.crosstab-table-header h3 { margin-bottom: 0; }
+
 .var-list { display: flex; flex-direction: column; gap: 4px; }
 
 .var-item {

@@ -41,7 +41,7 @@ async def upload(file: UploadFile = File(...)):
     if df.shape[1] == 0:
         raise HTTPException(400, "El archivo no contiene columnas.")
 
-    session_id = store.create_session(df, file.filename)
+    session_id = store.create_session(df, file.filename, labels)
     return {
         "session_id": session_id,
         "filename": file.filename,
@@ -59,9 +59,10 @@ async def variable_detail(session_id: str, var_name: str):
 
     series = df[var_name]
     role = statsmod.classify_role(series)
-    if role == "numeric":
-        return statsmod.describe_numeric(series)
-    return statsmod.describe_categorical(series)
+    result = statsmod.describe_numeric(series) if role == "numeric" else statsmod.describe_categorical(series)
+    result["name"] = var_name
+    result["label"] = store.get_labels(session_id).get(var_name, var_name)
+    return result
 
 
 @app.get("/api/crosstab/{session_id}")
@@ -73,9 +74,14 @@ async def crosstab(session_id: str, var1: str, var2: str):
         raise HTTPException(400, "Elige dos variables distintas.")
 
     try:
-        return statsmod.crosstab_chi2(df, var1, var2)
+        result = statsmod.crosstab_chi2(df, var1, var2)
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+    labels = store.get_labels(session_id)
+    result["var1_label"] = labels.get(var1, var1)
+    result["var2_label"] = labels.get(var2, var2)
+    return result
 
 
 @app.delete("/api/session/{session_id}")
@@ -103,7 +109,10 @@ async def rename_variable(session_id: str, var_name: str, payload: RenameVariabl
         raise HTTPException(400, "Ya existe una variable con ese nombre.")
 
     store.rename_column(session_id, var_name, new_name)
-    return {"variables": statsmod.variable_summary(store.get_df(session_id)), "new_name": new_name}
+    return {
+        "variables": statsmod.variable_summary(store.get_df(session_id), store.get_labels(session_id)),
+        "new_name": new_name,
+    }
 
 
 class RelabelRequest(BaseModel):
@@ -121,9 +130,12 @@ async def relabel_variable(session_id: str, var_name: str, payload: RelabelReque
     cleaned = {k: v.strip() for k, v in payload.mapping.items() if v.strip()}
     store.relabel_column(session_id, var_name, cleaned)
     df = store.get_df(session_id)
+    detail = statsmod.describe_categorical(df[var_name])
+    detail["name"] = var_name
+    detail["label"] = store.get_labels(session_id).get(var_name, var_name)
     return {
-        "variables": statsmod.variable_summary(df),
-        "detail": statsmod.describe_categorical(df[var_name]),
+        "variables": statsmod.variable_summary(df, store.get_labels(session_id)),
+        "detail": detail,
     }
 
 
@@ -160,7 +172,10 @@ async def recode_numeric_endpoint(session_id: str, payload: NumericRecodeRequest
         df[payload.source_var], [r.model_dump() for r in payload.rules], payload.other_label
     )
     store.set_column(session_id, new_var, new_series)
-    return {"variables": statsmod.variable_summary(store.get_df(session_id)), "new_var": new_var}
+    return {
+        "variables": statsmod.variable_summary(store.get_df(session_id), store.get_labels(session_id)),
+        "new_var": new_var,
+    }
 
 
 class CategoricalRecodeRule(BaseModel):
@@ -193,7 +208,10 @@ async def recode_categorical_endpoint(session_id: str, payload: CategoricalRecod
         df[payload.source_var], [r.model_dump() for r in payload.rules], payload.other_label
     )
     store.set_column(session_id, new_var, new_series)
-    return {"variables": statsmod.variable_summary(store.get_df(session_id)), "new_var": new_var}
+    return {
+        "variables": statsmod.variable_summary(store.get_df(session_id), store.get_labels(session_id)),
+        "new_var": new_var,
+    }
 
 
 # ---------- Conjuntos de respuesta múltiple ----------

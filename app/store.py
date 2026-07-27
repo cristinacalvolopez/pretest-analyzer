@@ -29,15 +29,25 @@ def _get_record(session_id: str) -> dict:
     return session
 
 
-def create_session(df: pd.DataFrame, filename: str) -> str:
+def create_session(df: pd.DataFrame, filename: str, labels: dict[str, str] | None = None) -> str:
     _purge_expired()
     session_id = uuid.uuid4().hex
-    _SESSIONS[session_id] = {"df": df, "filename": filename, "created": time.time(), "mrsets": {}}
+    _SESSIONS[session_id] = {
+        "df": df,
+        "filename": filename,
+        "created": time.time(),
+        "mrsets": {},
+        "labels": dict(labels or {}),
+    }
     return session_id
 
 
 def get_df(session_id: str) -> pd.DataFrame:
     return _get_record(session_id)["df"]
+
+
+def get_labels(session_id: str) -> dict[str, str]:
+    return _get_record(session_id)["labels"]
 
 
 def delete_session(session_id: str) -> None:
@@ -47,6 +57,8 @@ def delete_session(session_id: str) -> None:
 def rename_column(session_id: str, old: str, new: str) -> None:
     session = _get_record(session_id)
     session["df"].rename(columns={old: new}, inplace=True)
+    if old in session["labels"]:
+        session["labels"][new] = session["labels"].pop(old)
     for mrset in session["mrsets"].values():
         mrset["variables"] = [new if v == old else v for v in mrset["variables"]]
         labels = mrset.get("variable_labels", {})
