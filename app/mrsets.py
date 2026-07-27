@@ -12,6 +12,8 @@ N y % de respuestas, y % de casos (sobre encuestados con alguna respuesta).
 """
 import pandas as pd
 
+from . import stats as statsmod
+
 
 def build_dichotomy_summary(
     df: pd.DataFrame, variables: list[str], variable_labels: dict[str, str], dichotomy_value: str
@@ -47,15 +49,18 @@ def build_category_summary(df: pd.DataFrame, variables: list[str]) -> dict:
     n_responses = int(vc.sum())
     n_cases = int(df[variables].notna().any(axis=1).sum())
 
+    ref_series = df[variables[0]] if variables else pd.Series(dtype=object)
+    ordered_labels = statsmod.category_order(ref_series, list(vc.index))
+
     categories = [
         {
             "variable": None,
-            "label": str(label),
-            "count": int(count),
-            "pct_responses": (float(count) / n_responses * 100) if n_responses else 0.0,
-            "pct_cases": (float(count) / n_cases * 100) if n_cases else 0.0,
+            "label": label,
+            "count": int(vc[label]),
+            "pct_responses": (float(vc[label]) / n_responses * 100) if n_responses else 0.0,
+            "pct_cases": (float(vc[label]) / n_cases * 100) if n_cases else 0.0,
         }
-        for label, count in vc.items()
+        for label in ordered_labels
     ]
 
     return {"type": "category", "n_responses": n_responses, "n_cases": n_cases, "categories": categories}

@@ -74,19 +74,42 @@ def describe_numeric(series: pd.Series) -> dict:
     }
 
 
+def category_order(series: pd.Series, labels: list[str]) -> list[str]:
+    """Ordena etiquetas de categorías de forma lógica en vez de por frecuencia.
+
+    Si la serie es de tipo categórico (variables con etiquetas de valor de
+    Stata/SPSS), se respeta el orden de los códigos originales. En caso
+    contrario, se ordena numéricamente cuando las etiquetas son números
+    (p. ej. escalas 0-10 leídas de Excel) y, si no, alfabéticamente.
+    """
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        rank = {str(c): i for i, c in enumerate(series.dtype.categories)}
+        return sorted(labels, key=lambda label: rank.get(label, len(rank)))
+
+    def sort_key(label: str):
+        try:
+            return (0, float(label))
+        except ValueError:
+            return (1, label.lower())
+
+    return sorted(labels, key=sort_key)
+
+
 def describe_categorical(series: pd.Series) -> dict:
     n = int(series.shape[0])
     missing = int(series.isna().sum())
     vc = series.dropna().astype(str).value_counts()
     total = int(vc.sum())
 
+    ordered_labels = category_order(series, list(vc.index))
+
     frequencies = [
         {
-            "label": str(label),
-            "count": int(count),
-            "pct": (float(count) / total * 100) if total else 0.0,
+            "label": label,
+            "count": int(vc[label]),
+            "pct": (float(vc[label]) / total * 100) if total else 0.0,
         }
-        for label, count in vc.items()
+        for label in ordered_labels
     ]
 
     return {
@@ -106,6 +129,10 @@ def crosstab_chi2(df: pd.DataFrame, var1: str, var2: str) -> dict:
         raise ValueError(
             "Cada variable necesita al menos 2 categorías con datos para calcular chi-cuadrado."
         )
+
+    row_order = category_order(df[var1], list(table.index))
+    col_order = category_order(df[var2], list(table.columns))
+    table = table.reindex(index=row_order, columns=col_order)
 
     chi2, p_value, dof, expected = scipy_stats.chi2_contingency(table)
     n = table.values.sum()

@@ -318,7 +318,13 @@
   function renderFrequencyChart(container, frequencies) {
     if (!frequencies.length) { container.innerHTML = `<div class="empty-state">Sin datos.</div>`; return; }
     const max = Math.max(...frequencies.map((f) => f.count), 1);
-    const top = frequencies.slice(0, 15);
+    let top = frequencies;
+    if (frequencies.length > 15) {
+      const topLabels = new Set(
+        [...frequencies].sort((a, b) => b.count - a.count).slice(0, 15).map((f) => f.label)
+      );
+      top = frequencies.filter((f) => topLabels.has(f.label));
+    }
     container.innerHTML = "";
     top.forEach((f) => {
       const row = document.createElement("div");
@@ -340,7 +346,7 @@
       note.className = "text-secondary";
       note.style.fontSize = "12px";
       note.style.marginTop = "8px";
-      note.textContent = `Mostrando las 15 categorías más frecuentes de ${frequencies.length}.`;
+      note.textContent = `Mostrando las 15 categorías con más casos de ${frequencies.length} (en su orden habitual).`;
       container.appendChild(note);
     }
   }
